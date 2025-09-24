@@ -22,8 +22,9 @@ services:
     environment:
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
-      # Using SQLite meta DB for simplicity on Day 0; you can switch to Postgres later.
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:////usr/local/airflow/airflow.db"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: >-
+        postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@${AIRFLOW_DB_HOST}:${AIRFLOW_DB_PORT}/${AIRFLOW_DB_NAME}
+      AIRFLOW__DATABASE__LOAD_DEFAULT_CONNECTIONS: "False"
     command: >
       bash -lc "
         airflow db upgrade &&
@@ -33,7 +34,7 @@ services:
           --firstname Admin
           --lastname User
           --role Admin
-          --email ${AIRFLOW_ADMIN_EMAIL} &&
+          --email ${AIRFLOW_ADMIN_EMAIL} || true &&
         airflow webserver & airflow scheduler
       "
     volumes:
@@ -63,7 +64,50 @@ services:
       timeout: 5s
       retries: 10
 
+  # MLflow tracking server
+  mlflow:
+    image: bitnami/mlflow:2
+    environment:
+      # Backend store (simple local SQLite file in the container volume)
+      MLFLOW_BACKEND_STORE_URI: sqlite:////mlflow/mlflow.db
+      # Artifacts to MinIO (S3-compatible)
+      MLFLOW_DEFAULT_ARTIFACT_ROOT: s3://mlflow
+      MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL:-http://minio:9000}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+    volumes:
+      - mlflow_data:/mlflow
+    ports:
+      - "${MLFLOW_PORT:-5000}:5000"
+
+  # Apache Superset (for BI)
+  superset:
+    image: apache/superset:latest
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - superset_home:/app/superset_home
+    ports:
+      - "${SUPERSET_PORT:-8088}:8088"
+    command: >
+      bash -lc "
+        superset db upgrade &&
+        superset fab create-admin
+          --username ${SUPERSET_ADMIN_USERNAME}
+          --firstname Admin
+          --lastname User
+          --email ${SUPERSET_ADMIN_EMAIL}
+          --password ${SUPERSET_ADMIN_PASSWORD} || true &&
+        superset init &&
+        gunicorn -w 2 -k gevent --timeout 60 -b 0.0.0.0:8088 'superset.app:create_app()'
+      "
+
 volumes:
   pgdata:
   airflow_home:
   minio_data:
+  mlflow_data:
+  superset_home:

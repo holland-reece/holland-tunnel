@@ -1,0 +1,6 @@
+# local env files
+infra/.env
+
+# # docker volumes (if you bind to host paths)
+# volumes/
+# data/

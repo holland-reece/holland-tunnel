@@ -2,40 +2,68 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_DB: ${PG_DB:-datawarehouse}
-      POSTGRES_USER: ${PG_USER:-analytics}
-      POSTGRES_PASSWORD: ${PG_PASSWORD:-analytics}
-    ports: [ "5432:5432" ]
+      POSTGRES_DB: ${PG_DB}
+      POSTGRES_USER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+    ports: ["${POSTGRES_PORT:-5432}:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-analytics} -d ${PG_DB:-datawarehouse}"]
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ${PG_DB}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   airflow:
     image: apache/airflow:2.9.3
-    command: bash -c "airflow db upgrade && airflow users create --username admin --password admin --firstname Admin --lastname Admin --role Admin --email admin@example.com && airflow webserver & airflow scheduler"
-    environment:
-      AIRFLOW__CORE__LOAD_EXAMPLES: ${AIRFLOW__CORE__LOAD_EXAMPLES:-False}
-      AIRFLOW__CORE__FERNET_KEY: "xWc9mQ8H2l1KB6JQj3l3xWm6x5u3qY6N"  # demo only
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:////usr/local/airflow/airflow.db"
-      OPENLINEAGE_URL: ${OPENLINEAGE_URL:-}
-      OPENLINEAGE_NAMESPACE: ${OPENLINEAGE_NAMESPACE:-}
-    volumes:
-      - ../airflow/dags:/opt/airflow/dags
-      - airflow_home:/usr/local/airflow
-    ports: [ "8080:8080" ]
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
     depends_on:
       postgres:
         condition: service_healthy
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      # Using SQLite meta DB for simplicity on Day 0; you can switch to Postgres later.
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:////usr/local/airflow/airflow.db"
+    command: >
+      bash -lc "
+        airflow db upgrade &&
+        airflow users create
+          --username ${AIRFLOW_ADMIN_USER}
+          --password ${AIRFLOW_ADMIN_PASSWORD}
+          --firstname Admin
+          --lastname User
+          --role Admin
+          --email ${AIRFLOW_ADMIN_EMAIL} &&
+        airflow webserver & airflow scheduler
+      "
+    volumes:
+      - ../airflow/dags:/opt/airflow/dags
+      - airflow_home:/usr/local/airflow
+    ports: ["${AIRFLOW_PORT:-8080}:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2024-06-13T22-53-53Z
+    command: server /data --console-address ":${MINIO_CONSOLE_PORT:-9001}"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
 volumes:
   pgdata:
   airflow_home:
+  minio_data:

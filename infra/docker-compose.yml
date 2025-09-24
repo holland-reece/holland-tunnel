@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${PG_DB:-datawarehouse}
+      POSTGRES_USER: ${PG_USER:-analytics}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-analytics}
+    ports: [ "5432:5432" ]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-analytics} -d ${PG_DB:-datawarehouse}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  airflow:
+    image: apache/airflow:2.9.3
+    command: bash -c "airflow db upgrade && airflow users create --username admin --password admin --firstname Admin --lastname Admin --role Admin --email admin@example.com && airflow webserver & airflow scheduler"
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: ${AIRFLOW__CORE__LOAD_EXAMPLES:-False}
+      AIRFLOW__CORE__FERNET_KEY: "xWc9mQ8H2l1KB6JQj3l3xWm6x5u3qY6N"  # demo only
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:////usr/local/airflow/airflow.db"
+      OPENLINEAGE_URL: ${OPENLINEAGE_URL:-}
+      OPENLINEAGE_NAMESPACE: ${OPENLINEAGE_NAMESPACE:-}
+    volumes:
+      - ../airflow/dags:/opt/airflow/dags
+      - airflow_home:/usr/local/airflow
+    ports: [ "8080:8080" ]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  airflow_home:

@@ -1,6 +1,14 @@
 # local env files
-infra/.env
+airflow/.env
+airflow/dags/__pycache__/
+airflow/config/
+airflow/plugins/
 
-# # docker volumes (if you bind to host paths)
-# volumes/
-# data/
+# logs
+airflow/logs/
+
+# reference files
+docker-compose-ref.yaml
+airflow/example_branch_datetime_operator.py
+20250924_infra_project_notes.txt
+

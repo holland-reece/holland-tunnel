@@ -1,17 +1,56 @@
 # Hello DAG
 # initial DAG so UI shows something as I develop the infra
 
-from datetime import datetime
-from airflow import DAG
-from airflow.operators.empty import EmptyOperator
+# from datetime import datetime
+# from airflow import DAG
+# from airflow.operators.empty import EmptyOperator
 
-with DAG(
+# with DAG(
+#     dag_id="hello_dag",
+#     start_date=datetime.today(),
+#     schedule_interval=None,
+#     catchup=False,
+#     tags=["day0"],
+# ) as dag:
+#     start = EmptyOperator(task_id="start")
+#     end = EmptyOperator(task_id="end")
+#     start >> end
+
+from __future__ import annotations
+
+import pendulum
+
+from airflow.providers.standard.operators.datetime import BranchDateTimeOperator
+from airflow.providers.standard.operators.empty import EmptyOperator
+from airflow.sdk import DAG
+
+
+dag1 = DAG(
     dag_id="hello_dag",
-    start_date=datetime(2024,1,1),
-    schedule_interval=None,
+    start_date=pendulum.datetime(2025, 7, 1, tz="UTC"),
     catchup=False,
     tags=["day0"],
-) as dag:
-    start = EmptyOperator(task_id="start")
-    end = EmptyOperator(task_id="end")
-    start >> end
+)
+
+start_task1 = EmptyOperator(task_id="start", dag=dag1)
+end_task1 = EmptyOperator(task_id="end", dag=dag1)
+
+
+# # [START howto_branch_datetime_operator]
+# empty_task_11 = EmptyOperator(task_id="date_in_range", dag=dag1)
+# empty_task_21 = EmptyOperator(task_id="date_outside_range", dag=dag1)
+
+cond1 = BranchDateTimeOperator(
+    task_id="datetime_branch",
+    follow_task_ids_if_true=["date_in_range"],
+    follow_task_ids_if_false=["date_outside_range"],
+    target_upper=pendulum.datetime(2025, 12, 7, 15, 0, 0),
+    target_lower=pendulum.datetime(2025, 7, 7, 15, 0, 0),
+    dag=dag1,
+)
+
+# Run empty_task_11 if cond1 executes between 2020-10-10 14:00:00 and 2020-10-10 15:00:00
+# cond1 >> [empty_task_11, empty_task_21]
+start_task1 >> end_task1
+
+# [END howto_branch_datetime_operator]

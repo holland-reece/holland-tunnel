@@ -17,5 +17,5 @@ export
 */export
 
 # Secrets
-secrets/
-secrets/*
+airflow/secrets/
+*/secrets/*

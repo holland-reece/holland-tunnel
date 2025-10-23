@@ -64,6 +64,7 @@ x-airflow-common:
     # See https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/check-health.html#scheduler-health-check-server
     # yamllint enable rule:line-length
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
+    AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: 'google-cloud-platform://?extra__google_cloud_platform__key_path=/airflow/secrets/gcp-creds.json'
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-} # optional quick checks
     # AIRFLOW_CONFIG: '${PROJECT_DIR:-.}/airflow/config/airflow.cfg'    # set custom config file in local config dir
   volumes:
@@ -71,6 +72,7 @@ x-airflow-common:
     - ${PROJECT_DIR:-.}/airflow/logs:/opt/airflow/logs
     - ${PROJECT_DIR:-.}/airflow/config:/opt/airflow/config
     - ${PROJECT_DIR:-.}/airflow/plugins:/opt/airflow/plugins
+    - ${PROJECT_DIR:-.}/airflow/plugins:/opt/airflow/secrets
   user: "${AIRFLOW_UID:-50000}:0" # default user=5000; group id=0
   depends_on:
     &airflow-common-depends-on
@@ -303,23 +305,23 @@ services:
     depends_on:
       <<: *airflow-common-depends-on
 
-  # minio (S3-compatible object storage)
-  minio:
-    image: quay.io/minio/minio:RELEASE.2024-06-13T22-53-53Z
-    command: server /data --console-address ":${MINIO_CONSOLE_PORT:-9001}"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    ports:
-      - "${MINIO_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
-    volumes:
-      - minio_data:${PROJECT_DIR:-.}/minio
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
+  # # minio (S3-compatible object storage)
+  # minio:
+  #   image: quay.io/minio/minio:RELEASE.2024-06-13T22-53-53Z
+  #   command: server /data --console-address ":${MINIO_CONSOLE_PORT:-9001}"
+  #   environment:
+  #     MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+  #     MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+  #   ports:
+  #     - "${MINIO_PORT:-9000}:9000"
+  #     - "${MINIO_CONSOLE_PORT:-9001}:9001"
+  #   volumes:
+  #     - minio_data:${PROJECT_DIR:-.}/minio
+  #   healthcheck:
+  #     test: ["CMD", "mc", "ready", "local"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 10
 
   # dbt
   dbt:
@@ -337,21 +339,21 @@ services:
       - postgres
     command: ["run"]
 
-  # MLflow tracking server
-  mlflow:
-    image: bitnami/mlflow:2
-    environment:
-      # Backend store (simple local SQLite file in the container volume)
-      MLFLOW_BACKEND_STORE_URI: sqlite:////mlflow/mlflow.db
-      # Artifacts to MinIO (S3-compatible)
-      MLFLOW_DEFAULT_ARTIFACT_ROOT: s3://mlflow
-      MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL:-http://minio:9000}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-    volumes:
-      - mlflow_data:${PROJECT_DIR:-.}/mlflow
-    ports:
-      - "${MLFLOW_PORT:-5002}:5002"
+  # # MLflow tracking server
+  # mlflow:
+  #   image: bitnami/mlflow:2
+  #   environment:
+  #     # Backend store (simple local SQLite file in the container volume)
+  #     MLFLOW_BACKEND_STORE_URI: sqlite:////mlflow/mlflow.db
+  #     # Artifacts to MinIO (S3-compatible)
+  #     MLFLOW_DEFAULT_ARTIFACT_ROOT: s3://mlflow
+  #     MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL:-http://minio:9000}
+  #     AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+  #     AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+  #   volumes:
+  #     - mlflow_data:${PROJECT_DIR:-.}/mlflow
+  #   ports:
+  #     - "${MLFLOW_PORT:-5002}:5002"
 
   # Apache Superset (for BI)
   superset:

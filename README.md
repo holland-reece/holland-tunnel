@@ -63,7 +63,7 @@ The goal is to show real-world, production-style patterns on a small, well-scope
                   │
                   ▼
     ┌────────────────────────────┐
-    │ BI & ML (Superset/Looker) │
+    │ BI & ML (Superset/Looker)  │
     │ DBSCAN clusters, maps, KPIs│
     └────────────────────────────┘
 

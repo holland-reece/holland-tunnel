@@ -15,3 +15,7 @@ airflow/example_branch_datetime_operator.py
 # system files
 export
 */export
+
+# Secrets
+secrets/
+secrets/*

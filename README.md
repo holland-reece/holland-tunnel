@@ -31,8 +31,9 @@ The goal is to show real-world, production-style patterns on a small, well-scope
 | Lineage | **OpenLineage + Marquez** | Track data lineage from Airflow to BigQuery |
 | ML | **scikit-learn (DBSCAN)** | Geographic clustering of NPI data |
 | BI | **Apache Superset** | Visualization, dashboards, BI |
+| (Future) | **mlflow** | Plan to add ML orchestration (like Airflow for ML)
 | (Future) | **Looker Studio** | Plan to explore Looker for viz/BI in future |
-| (Future) | **Ollama (local LLM)** | Generate narrative reports from BI metrics |
+| (Future) | **Ollama (local LLM)** | Plan to generate narrative reports from BI metrics |
 
 ---
 

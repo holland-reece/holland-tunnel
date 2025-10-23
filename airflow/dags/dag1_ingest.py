@@ -24,7 +24,7 @@ import requests, json, os, pandas as pd
 
 GCS_BUCKET = os.getenv("GCS_BUCKET", "npi-bronze-bucket")
 BQ_DATASET = os.getenv("BIGQUERY_DATASET", "bronze")
-PROJECT_ID = os.getenv("GCP_PROJECT_ID", "npi-bigquery-demo")
+PROJECT_ID = os.getenv("GCP_PROJECT_ID")
 
 def fetch_npi_data(**context):
     url = "https://npiregistry.cms.hhs.gov/api/?version=2.1&state=CA&limit=10"

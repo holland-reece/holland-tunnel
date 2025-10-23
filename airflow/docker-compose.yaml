@@ -44,12 +44,9 @@
 #
 # Feel free to modify this file to suit your needs.
 ---
-x-airflow-common:
-  &airflow-common
-  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:3.0.6}
-  # build: .
-  environment:
-    &airflow-common-env
+x-airflow-common: &airflow-common
+  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.10.0-python3.10}
+  environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
     AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
@@ -57,22 +54,29 @@ x-airflow-common:
     AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
     AIRFLOW__CORE__FERNET_KEY: '${AIRFLOW_FERNET_KEY:-}'
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
-    AIRFLOW__CORE__LOAD_EXAMPLES: 'false' #'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-apiserver:8080/execution/'
-    # yamllint disable rule:line-length
-    # Use simple http server on scheduler for health checks
-    # See https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/check-health.html#scheduler-health-check-server
-    # yamllint enable rule:line-length
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
-    AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: 'google-cloud-platform://?extra__google_cloud_platform__key_path=/airflow/secrets/gcp-creds.json'
-    _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-} # optional quick checks
-    # AIRFLOW_CONFIG: '${PROJECT_DIR:-.}/airflow/config/airflow.cfg'    # set custom config file in local config dir
+
+    # Google connection (PATH FIXED) + project in extras
+    AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: >-
+      google-cloud-platform://?extra__google_cloud_platform__key_path=/opt/airflow/secrets/gcp-creds.json
+      &extra__google_cloud_platform__project=${GCP_PROJECT_ID}
+
+    # Make Google libs happy everywhere
+    GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/secrets/gcp-creds.json
+
+    # Install providers/clients at container start if needed
+    _PIP_ADDITIONAL_REQUIREMENTS: >-
+      ${_PIP_ADDITIONAL_REQUIREMENTS:-apache-airflow-providers-google
+      google-cloud-bigquery pandas pyarrow}
+
   volumes:
     - ${PROJECT_DIR:-.}/airflow/dags:/opt/airflow/dags
     - ${PROJECT_DIR:-.}/airflow/logs:/opt/airflow/logs
     - ${PROJECT_DIR:-.}/airflow/config:/opt/airflow/config
     - ${PROJECT_DIR:-.}/airflow/plugins:/opt/airflow/plugins
-    - ${PROJECT_DIR:-.}/airflow/plugins:/opt/airflow/secrets
+    - ${PROJECT_DIR:-.}/airflow/secrets:/opt/airflow/secrets
   user: "${AIRFLOW_UID:-50000}:0" # default user=5000; group id=0
   depends_on:
     &airflow-common-depends-on
@@ -83,6 +87,8 @@ x-airflow-common:
 
 services:
   postgres:
+    # Postgres is still necessary, even though switched to BQ, for 
+    # Airflow's own internal metadata
     image: postgres:13
     environment:
       POSTGRES_USER: airflow
@@ -305,39 +311,18 @@ services:
     depends_on:
       <<: *airflow-common-depends-on
 
-  # # minio (S3-compatible object storage)
-  # minio:
-  #   image: quay.io/minio/minio:RELEASE.2024-06-13T22-53-53Z
-  #   command: server /data --console-address ":${MINIO_CONSOLE_PORT:-9001}"
-  #   environment:
-  #     MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-  #     MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-  #   ports:
-  #     - "${MINIO_PORT:-9000}:9000"
-  #     - "${MINIO_CONSOLE_PORT:-9001}:9001"
-  #   volumes:
-  #     - minio_data:${PROJECT_DIR:-.}/minio
-  #   healthcheck:
-  #     test: ["CMD", "mc", "ready", "local"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 10
-
-  # dbt
+  # dbt-bigquery config for BQ
   dbt:
-    container_name: dbt
-    image: ghcr.io/dbt-labs/dbt-postgres:1.9.latest
-    build: .
-    volumes:
-      - dbt_data:${PROJECT_DIR:-.}/dbt #/usr/app/dbt
-    ports:
-      - 5000:5000 #"8080:8080"
+    image: ghcr.io/dbt-labs/dbt-bigquery:1.9.1  # pin version
+    working_dir: /usr/app
     environment:
-      DBT_PROFILES_DIR: /usr/app/dbt
-      DBT_TARGET: dev
-    depends_on:
-      - postgres
-    command: ["run"]
+      DBT_PROFILES_DIR: /usr/app                 # where profiles.yml is mounted
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-creds.json
+    volumes:
+      - ./dbt:/usr/app                           # dbt_project.yml, models/, profiles.yml
+      - ./airflow/secrets:/secrets               # contains gcp-creds.json
+    command: "dbt --help"                        # safe default; override in run
 
   # # MLflow tracking server
   # mlflow:
@@ -355,34 +340,47 @@ services:
   #   ports:
   #     - "${MLFLOW_PORT:-5002}:5002"
 
-  # Apache Superset (for BI)
+  # Apache Superset (for BI) --> give superset its own postgres database
+  # for metadata, to prevent interference with Airflow's postgres
+  superset-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: superset
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: superset
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U superset -d superset"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - superset_db_data:/var/lib/postgresql/data
+
   superset:
     image: apache/superset:latest
+    depends_on:
+      superset-db:
+        condition: service_healthy
     environment:
       SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
-    depends_on:
-      postgres:
-        condition: service_healthy
+      SUPERSET_DATABASE_URI: postgresql+psycopg2://superset:superset@superset-db:5432/superset
     volumes:
-      - superset_home:${PROJECT_DIR:-.}/superset
+      - ./superset:/app/superset_home
     ports:
       - "${SUPERSET_PORT:-8088}:8088"
     command: >
-      bash -lc "
-        superset db upgrade &&
-        superset fab create-admin
-          --username ${SUPERSET_ADMIN_USERNAME}
-          --firstname Admin
-          --lastname User
-          --email ${SUPERSET_ADMIN_EMAIL}
-          --password ${SUPERSET_ADMIN_PASSWORD} || true &&
+      bash -lc "superset db upgrade && superset fab create-admin
+        --username ${SUPERSET_ADMIN_USERNAME}
+        --firstname Admin
+        --lastname User
+        --email ${SUPERSET_ADMIN_EMAIL}
+        --password ${SUPERSET_ADMIN_PASSWORD} || true &&
         superset init &&
-        gunicorn -w 2 -k gevent --timeout 60 -b 0.0.0.0:8088 'superset.app:create_app()'
-      "
+        gunicorn -w 2 -k gevent --timeout 60 -b 0.0.0.0:8088 'superset.app:create_app()'"
 
 volumes:
   postgres-db-volume:
   dbt_data:
-  minio_data:
+  # minio_data:
   mlflow_data:
-  superset_home:
+  superset_db_data:

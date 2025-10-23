@@ -1,0 +1,11 @@
+npi_bigquery:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: service-account
+      keyfile: /secrets/gcp-creds.json           # container path
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
+      dataset: silver
+      location: US
+      threads: 4

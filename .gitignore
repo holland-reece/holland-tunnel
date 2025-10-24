@@ -19,3 +19,6 @@ export
 # Secrets
 airflow/secrets/
 */secrets/*
+.env
+*/.env
+dbt/profiles.yml

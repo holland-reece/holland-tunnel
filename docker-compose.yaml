@@ -45,7 +45,7 @@
 # Feel free to modify this file to suit your needs.
 ---
 x-airflow-common: &airflow-common
-  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.10.0-python3.10}
+  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:latest-python3.12}
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
     AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
@@ -68,8 +68,10 @@ x-airflow-common: &airflow-common
 
     # Install providers/clients at container start if needed
     _PIP_ADDITIONAL_REQUIREMENTS: >-
-      ${_PIP_ADDITIONAL_REQUIREMENTS:-apache-airflow-providers-google
-      google-cloud-bigquery pandas pyarrow}
+      ${_PIP_ADDITIONAL_REQUIREMENTS:-apache-airflow
+      apache-airflow[google]
+      requests
+      }
 
   volumes:
     - ${PROJECT_DIR:-.}/airflow/dags:/opt/airflow/dags
@@ -294,7 +296,7 @@ services:
       _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
       _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
       _PIP_ADDITIONAL_REQUIREMENTS: ''
-    user: "0:0"
+    user: "5000:0" # set to docker-user:holland-tunnel
 
   airflow-cli:
     <<: *airflow-common
@@ -311,18 +313,18 @@ services:
     depends_on:
       <<: *airflow-common-depends-on
 
-  # dbt-bigquery config for BQ
-  dbt:
-    image: ghcr.io/dbt-labs/dbt-bigquery:1.9.1  # pin version
-    working_dir: /usr/app
-    environment:
-      DBT_PROFILES_DIR: /usr/app                 # where profiles.yml is mounted
-      GCP_PROJECT_ID: ${GCP_PROJECT_ID}
-      GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-creds.json
-    volumes:
-      - ./dbt:/usr/app                           # dbt_project.yml, models/, profiles.yml
-      - ./airflow/secrets:/secrets               # contains gcp-creds.json
-    command: "dbt --help"                        # safe default; override in run
+  # # dbt-bigquery config for BQ
+  # dbt:
+  #   image: ghcr.io/dbt-labs/dbt-bigquery:latest
+  #   working_dir: ${PROJECT_DIR:-.}/dbt
+  #   environment:
+  #     DBT_PROFILES_DIR: ${PROJECT_DIR:-.}/dbt    # where profiles.yml is mounted
+  #     GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+  #     GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-creds.json
+  #   volumes:
+  #     - ./dbt:${PROJECT_DIR:-.}/dbt              # dbt_project.yml, models/, profiles.yml
+  #     - ./airflow/secrets:/secrets               # contains gcp-creds.json
+  #   command: "dbt --help"                        # safe default; override in run
 
   # # MLflow tracking server
   # mlflow:
@@ -340,47 +342,51 @@ services:
   #   ports:
   #     - "${MLFLOW_PORT:-5002}:5002"
 
-  # Apache Superset (for BI) --> give superset its own postgres database
-  # for metadata, to prevent interference with Airflow's postgres
-  superset-db:
-    image: postgres:15
-    environment:
-      POSTGRES_DB: superset
-      POSTGRES_USER: superset
-      POSTGRES_PASSWORD: superset
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U superset -d superset"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    volumes:
-      - superset_db_data:/var/lib/postgresql/data
+  # # Apache Superset (for BI) --> give superset its own postgres database
+  # # for metadata, to prevent interference with Airflow's postgres
+  # superset-db:
+  #   image: postgres:15
+  #   environment:
+  #     POSTGRES_DB: superset
+  #     POSTGRES_USER: superset
+  #     POSTGRES_PASSWORD: superset
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U superset -d superset"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 10
+  #   volumes:
+  #     - superset_db_data:/var/lib/postgresql/data
 
-  superset:
-    image: apache/superset:latest
-    depends_on:
-      superset-db:
-        condition: service_healthy
-    environment:
-      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
-      SUPERSET_DATABASE_URI: postgresql+psycopg2://superset:superset@superset-db:5432/superset
-    volumes:
-      - ./superset:/app/superset_home
-    ports:
-      - "${SUPERSET_PORT:-8088}:8088"
-    command: >
-      bash -lc "superset db upgrade && superset fab create-admin
-        --username ${SUPERSET_ADMIN_USERNAME}
-        --firstname Admin
-        --lastname User
-        --email ${SUPERSET_ADMIN_EMAIL}
-        --password ${SUPERSET_ADMIN_PASSWORD} || true &&
-        superset init &&
-        gunicorn -w 2 -k gevent --timeout 60 -b 0.0.0.0:8088 'superset.app:create_app()'"
+  # superset:
+  #   image: apache/superset:latest
+  #   depends_on:
+  #     superset-db:
+  #       condition: service_healthy
+  #   environment:
+  #     SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
+  #     SUPERSET_DATABASE_URI: postgresql+psycopg2://superset:superset@superset-db:5432/superset
+  #   volumes:
+  #     - ./superset:/app/superset_home
+  #   ports:
+  #     - "${SUPERSET_PORT:-8088}:8088"
+  #   command: >
+  #     bash -lc "superset db upgrade && superset fab create-admin
+  #       --username ${SUPERSET_ADMIN_USERNAME}
+  #       --firstname Admin
+  #       --lastname User
+  #       --email ${SUPERSET_ADMIN_EMAIL}
+  #       --password ${SUPERSET_ADMIN_PASSWORD} || true &&
+  #       superset init &&
+  #       gunicorn -w 2 -k gevent --timeout 60 -b 0.0.0.0:8088 'superset.app:create_app()'"
 
 volumes:
   postgres-db-volume:
-  dbt_data:
-  # minio_data:
-  mlflow_data:
-  superset_db_data:
+  # dbt_data:
+  # mlflow_data:
+  # superset_db_data:
+
+# # Set up Python env
+# FROM image
+# COPY ./requirements.txt ./
+# RUN pip install --no-cache-dir -r requirements.txt

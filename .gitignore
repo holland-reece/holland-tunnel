@@ -22,3 +22,7 @@ airflow/secrets/
 .env
 */.env
 dbt/profiles.yml
+
+# dev
+gcp-airflow-test
+gcp-airflow-test/*
